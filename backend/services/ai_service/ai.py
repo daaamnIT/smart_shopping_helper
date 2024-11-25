@@ -65,11 +65,11 @@ def format_recipe(raw_recipe: str) -> tuple:
     ingredients = parse_ingredients(raw_recipe)
  
     # Добавляем отформатированный список ингредиентов
-    ingredients_text = "\n\nСписок ингредиентов в структурированном виде:\n"
-    for name, amount in ingredients.items():
-        ingredients_text += f"• {name}: {amount}\n"
+    # ingredients_text = "\n\nСписок ингредиентов в структурированном виде:\n"
+    # for name, amount in ingredients.items():
+    #     ingredients_text += f"• {name}: {amount}\n"
  
-    return formatted + ingredients_text, ingredients
+    return formatted, ingredients
  
  
 # ... parse_ingredients and format_recipe functions remain the same as they don't need to be async ...

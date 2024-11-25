@@ -42,6 +42,12 @@ async def process_recipe_request(message: types.Message, state: FSMContext):
         
         # Get recipe from GPT
         recipe_text, ingredients = await get_recipe(message.text)
+        recipe_text = recipe_text.replace('**', '')
+        recipe_text = recipe_text.replace('*', '•')
+        key_word = "Приготовление"
+        key_word_pos = recipe_text.find(key_word)
+        if key_word_pos != -1:
+            recipe_text =  recipe_text[:key_word_pos] + "\n" + recipe_text[key_word_pos:]
         
         # Handle the new recipe with the handler
         recipe_data = {
