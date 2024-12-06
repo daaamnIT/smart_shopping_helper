@@ -5,7 +5,6 @@ from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
-import time
 
 # from backend.services.ai_service.ai import get_recipe
 #
@@ -32,7 +31,6 @@ def data_parser(ingredients: dict) -> list[dict]:
     ingredients = get_input_text(ingredients)
     purchases = []
     for el in ingredients:
-        print(el)
         base_url = f"https://av.ru/search/?text={el}"
 
         driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
@@ -67,22 +65,3 @@ def data_parser(ingredients: dict) -> list[dict]:
             mid_product = product_data[mid_index]
             purchases.append(mid_product)
     return purchases
-
-start_time = time.time()
-input_text = {"молоко": 100,
-              "мука": 11,
-              "яйца": 10,
-              "творог": 213,
-              "сметана": 12313,
-              "кефир": 21424,
-              "жвачка": 24124,
-              "киндер": 124141}
-print(data_parser(input_text))
-end_time = time.time()
-print(round(end_time - start_time, 3))
-
-
-
-
-
-
