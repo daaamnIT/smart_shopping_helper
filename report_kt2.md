@@ -66,6 +66,8 @@
 ### Тесты парсера пройдены успешно!
 ![успешные тесты](https://github.com/daaamnIT/smart_shopping_helper/blob/main/backend/database/src_tmp_ya_tut_budu_skrinshoti_hrant/tg_image_1325440826.png?raw=true)
 
+### Видео отчет работы бота:
+[смотерть видео онлайн без смс и регистрации](https://drive.google.com/file/d/1HbiNv1SBytrdxOcr0wxS_-QJ45JtNxTl/view?usp=sharing)
 
 ### Статус проекта
 Таким образом, сейчас в боте реализован минимальный функционал, который делает проект работоспособным. Все запланированное успеем сделать в срок, все круто и классно!
