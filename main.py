@@ -1,47 +1,50 @@
-from aiogram import Bot, Dispatcher, types, Router, F
-from aiogram.filters import Command, StateFilter
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
-from aiogram.client.default import DefaultBotProperties
-from aiogram.enums import ParseMode
+from aiogram import Bot, Dispatcher, types, Router, F   #type: ignore
+from aiogram.filters import Command, StateFilter    #type: ignore
+from aiogram.fsm.context import FSMContext  #type: ignore
+from aiogram.fsm.state import State, StatesGroup    #type: ignore
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton   #type: ignore
+from aiogram.client.default import DefaultBotProperties   #type: ignore
+from aiogram.enums import ParseMode  #type: ignore
 
 
 from bot.keyboards.main_keyboard import get_main_keyboard
 from bot import texts
 from bot.settings import BOT_TOKEN
 from backend.services.ai_service.ai import get_recipe
-from backend.handler import Handler  # Import the Handler class
+from backend.handler import Handler
+from backend.parser.parser import data_parser
 
-# Define states for the conversation flow
 class RecipeStates(StatesGroup):
     waiting_for_recipe_request = State()
 
-# Create router for command handling
 router = Router()
-handler = Handler()  # Initialize the handler
+handler = Handler()
 
-# New recipe request handler
 @router.message(lambda msg: msg.text == texts.buttons["new_recipe"])
 async def new_recipe_request(message: types.Message, state: FSMContext):
-    # Send instruction message and set state
     await message.answer(
         "Пожалуйста, напишите название блюда и количество порций.\n"
         "Например: 'борщ на 2 порции' или 'паста карбонара на 4 порции'"
     )
     await state.set_state(RecipeStates.waiting_for_recipe_request)
 
-# Handle the actual recipe request
 @router.message(StateFilter(RecipeStates.waiting_for_recipe_request))
 async def process_recipe_request(message: types.Message, state: FSMContext):
-    # Send "typing" action while processing
     await message.bot.send_chat_action(message.chat.id, "typing")
     
     try:
         user_id = message.from_user.id
         
-        # Get recipe from GPT
         recipe_text, ingredients = await get_recipe(message.text)
+        
+        ingredients = {key.replace(' ', "+"): value for key, value in ingredients.items()}
+
+        print(f'ingredients:\n {ingredients}')
+
+
+        links = await data_parser(ingredients)
+
+
         recipe_text = recipe_text.replace('**', '')
         recipe_text = recipe_text.replace('*', '•')
         key_word = "Приготовление"
@@ -49,20 +52,24 @@ async def process_recipe_request(message: types.Message, state: FSMContext):
         if key_word_pos != -1:
             recipe_text =  recipe_text[:key_word_pos] + "\n" + recipe_text[key_word_pos:]
         
-        # Handle the new recipe with the handler
         recipe_data = {
             'text': recipe_text,
             'ingredients': ingredients,
             'request': message.text
         }
         
-        # Process the recipe with handler
         await handler.new_recipe_handler(user_id, recipe_data)
+
+        products_message = ""
+        for product in links:
+            products_message += f"{product["name"]}:\nЦена: {product["price"]}\nСсылка: {product["link"]}\n\n"
+
+        print(products_message)
+
+        result_message = recipe_text + "\n\n" + "Ссылки на продукты:\n" + "\n" + products_message
         
-        # Send the recipe
-        await message.answer(recipe_text, reply_markup=get_main_keyboard())
+        await message.answer(result_message, reply_markup=get_main_keyboard())
         
-        # Clear the state
         await state.clear()
         
     except Exception as e:
@@ -74,7 +81,6 @@ async def process_recipe_request(message: types.Message, state: FSMContext):
         await state.clear()
 
 
-# Update other handlers to use the Handler class
 @router.message(lambda msg: msg.text == texts.buttons["favorite_recipes"])
 async def favorite_recipes(message: types.Message):
     user_id = message.from_user.id
@@ -102,11 +108,10 @@ async def preferences(message: types.Message):
     else:
         await message.answer(texts.preferences_response)
 
-# Start command handler with user registration
 @router.message(Command("start"))
 async def cmd_start(message: types.Message):
     user_id = message.from_user.id
-    await handler.add_new_user(user_id)  # Register new user
+    await handler.add_new_user(user_id)
     await message.answer(
         str(texts.welcome_message(message)),
         reply_markup=get_main_keyboard()
@@ -118,10 +123,8 @@ async def main():
     bot = Bot(token=BOT_TOKEN, default=default)
     dp = Dispatcher()
     
-    # Include router
     dp.include_router(router)
     
-    # Start polling
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
