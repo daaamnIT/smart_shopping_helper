@@ -237,4 +237,8 @@ pip-selfcheck.json
 .history
 .ionide
 
+# Project specific settings files
+backend/services/ai_service/settings.py
+bot/settings.py
+
 # End of https://www.toptal.com/developers/gitignore/api/venv,python,visualstudiocode,macos
