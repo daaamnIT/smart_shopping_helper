@@ -3,6 +3,7 @@ import asyncio
 import json
 import re
 import ssl
+from settings import GPT_API_KEY
  
 def parse_ingredients(recipe: str) -> dict:
     """
@@ -79,7 +80,7 @@ async def get_recipe(query: str) -> tuple:
     Асинхронно получает запрос вида "борщ на 2 порции" и возвращает рецепт от YandexGPT
     и словарь ингредиентов
     """
-    API_KEY = 'AQVN2lI_NW4aqQAZKXjE37BeQzGaEHNIvKudc0zn'
+    API_KEY = GPT_API_KEY
     URL = 'https://llm.api.cloud.yandex.net/foundationModels/v1/completion'
  
     headers = {
