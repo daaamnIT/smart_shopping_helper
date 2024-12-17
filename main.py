@@ -5,6 +5,8 @@ from aiogram.fsm.state import State, StatesGroup    #type: ignore
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton   #type: ignore
 from aiogram.client.default import DefaultBotProperties   #type: ignore
 from aiogram.enums import ParseMode  #type: ignore
+from aiogram.filters.callback_data import CallbackData  #type: ignore
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery #type: ignore
 
 
 from bot.keyboards.main_keyboard import get_main_keyboard
@@ -26,6 +28,13 @@ class PreferenceStates(StatesGroup):
 
 router = Router()
 handler = Handler()
+
+class RecipeCallback(CallbackData, prefix="recipe"):
+    action: str
+    id: str
+
+class PaginationCallback(CallbackData, prefix="page"):
+    offset: int
 
 @router.message(lambda msg: msg.text == texts.buttons["new_recipe"])
 async def new_recipe_request(message: types.Message, state: FSMContext):
@@ -100,11 +109,82 @@ async def favorite_recipes(message: types.Message):
 @router.message(lambda msg: msg.text == texts.buttons["recipe_history"])
 async def recipe_history(message: types.Message):
     user_id = message.from_user.id
-    history = await handler.get_recipe_history(user_id)
-    if history:
-        await message.answer(history)
-    else:
+    recipes, has_more = await handler.get_recipe_history(user_id, offset=0, limit=10)
+    
+    if not recipes:
         await message.answer(texts.recipe_history_response)
+        return
+        
+    for recipe in recipes:
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(
+                text="Получить полный рецепт",
+                callback_data=RecipeCallback(action="get_full", id=recipe["_id"]).pack()
+            )]
+        ])
+        
+        await message.answer(
+            f"🍳 {recipe['name']}",
+            reply_markup=keyboard
+        )
+    
+    if has_more:
+        more_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(
+                text="Больше рецептов",
+                callback_data=PaginationCallback(offset=10).pack()
+            )]
+        ])
+        await message.answer("Показать больше рецептов?", reply_markup=more_keyboard)
+
+@router.callback_query(RecipeCallback.filter(F.action == "get_full"))
+async def get_full_recipe(callback: CallbackQuery, callback_data: RecipeCallback):
+    recipe_id = callback_data.id
+    recipe = handler.recipe_db.get_recipe(recipe_id)
+    
+    if recipe:
+        await callback.message.answer(
+            f"🍳 {recipe['name']}\n\n{recipe['recipe']}",
+            reply_markup=get_main_keyboard()
+        )
+    else:
+        await callback.message.answer("Рецепт не найден")
+    
+    await callback.answer()
+
+@router.callback_query(PaginationCallback.filter())
+async def show_more_recipes(callback: CallbackQuery, callback_data: PaginationCallback):
+    offset = callback_data.offset
+    user_id = callback.from_user.id
+    
+    recipes, has_more = await handler.get_recipe_history(user_id, offset=offset, limit=10)
+    
+    if recipes:
+        await callback.message.delete()
+        
+        for recipe in recipes:
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(
+                    text="Получить полный рецепт",
+                    callback_data=RecipeCallback(action="get_full", id=recipe["_id"]).pack()
+                )]
+            ])
+            
+            await callback.message.answer(
+                f"🍳 {recipe['name']}",
+                reply_markup=keyboard
+            )
+        
+        if has_more:
+            more_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(
+                    text="Больше рецептов",
+                    callback_data=PaginationCallback(offset=offset + 10).pack()
+                )]
+            ])
+            await callback.message.answer("Показать больше рецептов?", reply_markup=more_keyboard)
+    
+    await callback.answer()
 
 @router.message(lambda msg: msg.text == texts.buttons["preferences"])
 async def preferences(message: types.Message, state: FSMContext):
