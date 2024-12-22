@@ -36,6 +36,7 @@ handler = Handler()
 
 class PaginationCallback(CallbackData, prefix="page"):
     offset: int
+    page_type: str = "history"
 
 class LoadingMessageManager:
     def __init__(self, message: types.Message):
@@ -212,22 +213,32 @@ async def favorite_recipes(message: types.Message):
         await message.answer("У вас пока нет избранных рецептов")
         return
     
-    # Display recipes in chunks of 3
-    for i in range(0, len(favorites), 3):
-        chunk = favorites[i:i+3]
-        recipes_text = ""
-        
-        for recipe in chunk:
-            recipes_text += f"🍳 {recipe['name']}\n\n"
-            
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(
-                text=f"Рецепт {j+1}",
-                callback_data=RecipeCallback(action="get_full", id=recipe["_id"]).pack()
-            )] for j, recipe in enumerate(chunk, start=1)
-        ])
-        
-        await message.answer(recipes_text.strip(), reply_markup=keyboard)
+    recipes_text = ""
+    keyboard_buttons = []
+    
+    current_recipes = favorites[:3]
+    for i, recipe in enumerate(current_recipes, start=1):
+        recipes_text += f"🍳 {recipe['name']}\n\n"
+        keyboard_buttons.append([InlineKeyboardButton(
+            text=f"Рецепт {i}",
+            callback_data=RecipeCallback(action="get_full", id=recipe["_id"]).pack()
+        )])
+    
+    nav_buttons = []
+    if len(favorites) > 3:
+        nav_buttons.append(
+            InlineKeyboardButton(
+                text="Следующие →",
+                callback_data=PaginationCallback(offset=3, page_type="favorites").pack()
+            )
+        )
+    
+    if nav_buttons:
+        keyboard_buttons.append(nav_buttons)
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
+    await message.answer(recipes_text.strip(), reply_markup=keyboard)
+
 
 @router.message(lambda msg: msg.text == texts.buttons["recipe_history"])
 async def recipe_history(message: types.Message):
@@ -248,17 +259,28 @@ async def recipe_history(message: types.Message):
             callback_data=RecipeCallback(action="get_full", id=recipe["_id"]).pack()
         )])
     
+    nav_buttons = []
     if has_more:
-        keyboard_buttons.append([
+        nav_buttons.append(
             InlineKeyboardButton(
-                text="Показать еще",
-                callback_data=PaginationCallback(offset=3).pack()
+                text="Следующие →",
+                callback_data=PaginationCallback(offset=3, page_type="history").pack()
             )
-        ])
+        )
+    
+    if nav_buttons:
+        keyboard_buttons.append(nav_buttons)
     
     keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
     await message.answer(recipes_text.strip(), reply_markup=keyboard)
 
+
+@router.callback_query(PaginationCallback.filter())
+async def handle_pagination(callback: CallbackQuery, callback_data: PaginationCallback):
+    if callback_data.page_type == "history":
+        await show_more_history(callback, callback_data)
+    else:
+        await show_more_favorites(callback, callback_data)
 
 
 @router.callback_query(RecipeCallback.filter(F.action == "get_full"))
@@ -300,13 +322,118 @@ async def show_more_recipes(callback: CallbackQuery, callback_data: PaginationCa
                 callback_data=RecipeCallback(action="get_full", id=recipe["_id"]).pack()
             )])
         
-        if has_more:
-            keyboard_buttons.append([
+        nav_buttons = []
+        
+        if offset >= 3:
+            nav_buttons.append(
                 InlineKeyboardButton(
-                    text="Показать еще",
+                    text="← Предыдущие",
+                    callback_data=PaginationCallback(offset=offset - 3).pack()
+                )
+            )
+        
+        if has_more:
+            nav_buttons.append(
+                InlineKeyboardButton(
+                    text="Следующие →",
                     callback_data=PaginationCallback(offset=offset + 3).pack()
                 )
-            ])
+            )
+        
+        if nav_buttons:
+            keyboard_buttons.append(nav_buttons)
+        
+        keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
+        await callback.message.answer(recipes_text.strip(), reply_markup=keyboard)
+    
+    await callback.answer()
+
+async def show_more_history(callback: CallbackQuery, callback_data: PaginationCallback):
+    offset = callback_data.offset
+    user_id = callback.from_user.id
+    
+    recipes, has_more = await handler.get_recipe_history(user_id, offset=offset, limit=3)
+    
+    if recipes:
+        await callback.message.delete()
+        
+        recipes_text = ""
+        keyboard_buttons = []
+        
+        for i, recipe in enumerate(recipes, start=offset+1):
+            recipes_text += f"🍳 {recipe['name']}\n\n"
+            keyboard_buttons.append([InlineKeyboardButton(
+                text=f"Рецепт {i}",
+                callback_data=RecipeCallback(action="get_full", id=recipe["_id"]).pack()
+            )])
+        
+        nav_buttons = []
+        
+        if offset >= 3:
+            nav_buttons.append(
+                InlineKeyboardButton(
+                    text="← Предыдущие",
+                    callback_data=PaginationCallback(offset=offset - 3, page_type="history").pack()
+                )
+            )
+        
+        if has_more:
+            nav_buttons.append(
+                InlineKeyboardButton(
+                    text="Следующие →",
+                    callback_data=PaginationCallback(offset=offset + 3, page_type="history").pack()
+                )
+            )
+        
+        if nav_buttons:
+            keyboard_buttons.append(nav_buttons)
+        
+        keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
+        await callback.message.answer(recipes_text.strip(), reply_markup=keyboard)
+    
+    await callback.answer()
+
+
+async def show_more_favorites(callback: CallbackQuery, callback_data: PaginationCallback):
+    offset = callback_data.offset
+    user_id = callback.from_user.id
+    
+    favorites = await handler.get_favorite_recipes(user_id)
+    
+    if favorites and offset < len(favorites):
+        await callback.message.delete()
+        
+        current_recipes = favorites[offset:offset+3]
+        recipes_text = ""
+        keyboard_buttons = []
+        
+        for i, recipe in enumerate(current_recipes, start=offset+1):
+            recipes_text += f"🍳 {recipe['name']}\n\n"
+            keyboard_buttons.append([InlineKeyboardButton(
+                text=f"Рецепт {i}",
+                callback_data=RecipeCallback(action="get_full", id=recipe["_id"]).pack()
+            )])
+        
+        nav_buttons = []
+        
+        if offset >= 3:
+            nav_buttons.append(
+                InlineKeyboardButton(
+                    text="← Предыдущие",
+                    callback_data=PaginationCallback(offset=offset - 3, page_type="favorites").pack()
+                )
+            )
+        
+        if offset + 3 < len(favorites):
+            nav_buttons.append(
+                InlineKeyboardButton(
+                    text="Следующие →",
+                    callback_data=PaginationCallback(offset=offset + 3, page_type="favorites").pack()
+                )
+            )
+        
+        if nav_buttons:
+            keyboard_buttons.append(nav_buttons)
         
         keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
         await callback.message.answer(recipes_text.strip(), reply_markup=keyboard)
