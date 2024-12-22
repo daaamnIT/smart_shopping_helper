@@ -16,7 +16,8 @@ class Handler:
             collection_name="recipes"
         )
 
-    async def get_recipe_history(self, user_id, offset: int = 0, limit: int = 10):
+    async def get_recipe_history(self, user_id, offset: int = 0, limit: int = 3):
+        """Get paginated recipe history for user directly from MongoDB"""
         recipes, has_more = self.recipe_db.get_user_recipes(user_id, skip=offset, limit=limit)
         return recipes, has_more
 

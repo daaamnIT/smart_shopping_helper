@@ -76,7 +76,11 @@ class LoadingMessageManager:
 async def new_recipe_request(message: types.Message, state: FSMContext):
     await message.answer(
         "Пожалуйста, напишите название блюда и количество порций.\n"
-        "Например: 'борщ на 2 порции' или 'паста карбонара на 4 порции'"
+        "Например: 'борщ на 2 порции' или 'паста карбонара на 4 порции'",
+        reply_markup=ReplyKeyboardMarkup(
+            keyboard=[[KeyboardButton(text="Отмена")]],
+            resize_keyboard=True
+        )
     )
     await state.set_state(RecipeStates.waiting_for_recipe_request)
 
@@ -106,6 +110,14 @@ async def generate_products_message(data):
 
 @router.message(StateFilter(RecipeStates.waiting_for_recipe_request))
 async def process_recipe_request(message: types.Message, state: FSMContext):
+    if message.text == "Отмена":
+        await message.answer(
+            "Поиск рецепта отменен",
+            reply_markup=get_main_keyboard()
+        )
+        await state.clear()
+        return
+    
     loading_message = await message.answer("🔍 Начинаю поиск рецепта...")
     loading_manager = LoadingMessageManager(loading_message)
     
@@ -160,7 +172,7 @@ async def process_recipe_request(message: types.Message, state: FSMContext):
         
         await loading_message.edit_text(result_message, reply_markup=keyboard)
         
-        await message.answer("Выберите действие:", reply_markup=get_main_keyboard())
+        await message.answer("Приготовим что-то еще?", reply_markup=get_main_keyboard())
         await state.clear()
         
     except Exception as e:
@@ -178,7 +190,7 @@ async def process_recipe_request(message: types.Message, state: FSMContext):
             reply_markup=error_keyboard
         )
         
-        await message.answer("Выберите действие:", reply_markup=get_main_keyboard())
+        await message.answer("Приготовим что-то еще?", reply_markup=get_main_keyboard())
         await state.clear()
 
 @router.callback_query(lambda c: c.data == "try_again")
@@ -200,35 +212,53 @@ async def favorite_recipes(message: types.Message):
         await message.answer("У вас пока нет избранных рецептов")
         return
     
-    for recipe in favorites:
-        keyboard = handler.create_recipe_keyboard(recipe["_id"], user_id, show_full=True)
-        formatted_recipe = f"🍳 {recipe['name']}"
-        await message.answer(formatted_recipe, reply_markup=keyboard)
+    # Display recipes in chunks of 3
+    for i in range(0, len(favorites), 3):
+        chunk = favorites[i:i+3]
+        recipes_text = ""
+        
+        for recipe in chunk:
+            recipes_text += f"🍳 {recipe['name']}\n\n"
+            
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(
+                text=f"Рецепт {j+1}",
+                callback_data=RecipeCallback(action="get_full", id=recipe["_id"]).pack()
+            )] for j, recipe in enumerate(chunk, start=1)
+        ])
+        
+        await message.answer(recipes_text.strip(), reply_markup=keyboard)
 
 @router.message(lambda msg: msg.text == texts.buttons["recipe_history"])
 async def recipe_history(message: types.Message):
     user_id = message.from_user.id
-    recipes, has_more = await handler.get_recipe_history(user_id, offset=0, limit=10)
+    recipes, has_more = await handler.get_recipe_history(user_id, offset=0, limit=3)
     
     if not recipes:
         await message.answer(texts.recipe_history_response)
         return
-        
-    for recipe in recipes:
-        keyboard = handler.create_recipe_keyboard(recipe["_id"], user_id, show_full=True)
-        await message.answer(
-            f"🍳 {recipe['name']}",
-            reply_markup=keyboard
-        )
+    
+    recipes_text = ""
+    keyboard_buttons = []
+    
+    for i, recipe in enumerate(recipes, start=1):
+        recipes_text += f"🍳 {recipe['name']}\n\n"
+        keyboard_buttons.append([InlineKeyboardButton(
+            text=f"Рецепт {i}",
+            callback_data=RecipeCallback(action="get_full", id=recipe["_id"]).pack()
+        )])
     
     if has_more:
-        more_keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(
-                text="Больше рецептов",
-                callback_data=PaginationCallback(offset=10).pack()
-            )]
+        keyboard_buttons.append([
+            InlineKeyboardButton(
+                text="Показать еще",
+                callback_data=PaginationCallback(offset=3).pack()
+            )
         ])
-        await message.answer("Показать больше рецептов?", reply_markup=more_keyboard)
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
+    await message.answer(recipes_text.strip(), reply_markup=keyboard)
+
 
 
 @router.callback_query(RecipeCallback.filter(F.action == "get_full"))
@@ -255,32 +285,31 @@ async def show_more_recipes(callback: CallbackQuery, callback_data: PaginationCa
     offset = callback_data.offset
     user_id = callback.from_user.id
     
-    recipes, has_more = await handler.get_recipe_history(user_id, offset=offset, limit=10)
+    recipes, has_more = await handler.get_recipe_history(user_id, offset=offset, limit=3)
     
     if recipes:
         await callback.message.delete()
         
-        for recipe in recipes:
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(
-                    text="Получить полный рецепт",
-                    callback_data=RecipeCallback(action="get_full", id=recipe["_id"]).pack()
-                )]
-            ])
-            
-            await callback.message.answer(
-                f"🍳 {recipe['name']}",
-                reply_markup=keyboard
-            )
+        recipes_text = ""
+        keyboard_buttons = []
+        
+        for i, recipe in enumerate(recipes, start=offset+1):
+            recipes_text += f"🍳 {recipe['name']}\n\n"
+            keyboard_buttons.append([InlineKeyboardButton(
+                text=f"Рецепт {i}",
+                callback_data=RecipeCallback(action="get_full", id=recipe["_id"]).pack()
+            )])
         
         if has_more:
-            more_keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(
-                    text="Больше рецептов",
-                    callback_data=PaginationCallback(offset=offset + 10).pack()
-                )]
+            keyboard_buttons.append([
+                InlineKeyboardButton(
+                    text="Показать еще",
+                    callback_data=PaginationCallback(offset=offset + 3).pack()
+                )
             ])
-            await callback.message.answer("Показать больше рецептов?", reply_markup=more_keyboard)
+        
+        keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
+        await callback.message.answer(recipes_text.strip(), reply_markup=keyboard)
     
     await callback.answer()
 
@@ -327,9 +356,13 @@ async def handle_preference_choice(message: types.Message, state: FSMContext):
 
     if choice == "Аллергия":
         await message.answer(
-            "Пожалуйста, напишите все продукты, на которые у вас аллергия, в одном сообщении через запятую",
+            "Пожалуйста, напишите все продукты, на которые у вас аллергия, в одном сообщении через запятую.\n"
+            "Или нажмите 'Очистить' чтобы удалить все аллергии.",
             reply_markup=ReplyKeyboardMarkup(
-                keyboard=[[KeyboardButton(text="Отмена")]],
+                keyboard=[
+                    [KeyboardButton(text="Очистить")],
+                    [KeyboardButton(text="Отмена")]
+                ],
                 resize_keyboard=True
             )
         )
@@ -347,9 +380,13 @@ async def handle_preference_choice(message: types.Message, state: FSMContext):
         
     elif choice == "Нелюбимые продукты":
         await message.answer(
-            "Пожалуйста, напишите все нелюбимые продукты в одном сообщении через запятую",
+            "Пожалуйста, напишите все нелюбимые продукты в одном сообщении через запятую.\n"
+            "Или нажмите 'Очистить' чтобы удалить все нелюбимые продукты.",
             reply_markup=ReplyKeyboardMarkup(
-                keyboard=[[KeyboardButton(text="Отмена")]],
+                keyboard=[
+                    [KeyboardButton(text="Очистить")],
+                    [KeyboardButton(text="Отмена")]
+                ],
                 resize_keyboard=True
             )
         )
@@ -373,6 +410,16 @@ async def handle_allergies(message: types.Message, state: FSMContext):
         )
         await state.set_state(PreferenceStates.waiting_for_menu_choice)
         return
+        
+    if message.text == "Очистить":
+        user_id = message.from_user.id
+        await handler.update_user_allergies(user_id, [])
+        await message.answer(
+            "Список аллергий очищен",
+            reply_markup=get_preferences_keyboard()
+        )
+        await state.set_state(PreferenceStates.waiting_for_menu_choice)
+        return
 
     user_id = message.from_user.id
     allergies = [item.strip() for item in message.text.split(',')]
@@ -384,6 +431,7 @@ async def handle_allergies(message: types.Message, state: FSMContext):
         reply_markup=get_preferences_keyboard()
     )
     await state.set_state(PreferenceStates.waiting_for_menu_choice)
+
 
 @router.message(StateFilter(PreferenceStates.waiting_for_price_limit))
 async def handle_price_limit(message: types.Message, state: FSMContext):
@@ -420,6 +468,16 @@ async def handle_disliked_products(message: types.Message, state: FSMContext):
     if message.text == "Отмена":
         await message.answer(
             "Настройка нелюбимых продуктов отменена",
+            reply_markup=get_preferences_keyboard()
+        )
+        await state.set_state(PreferenceStates.waiting_for_menu_choice)
+        return
+
+    if message.text == "Очистить":
+        user_id = message.from_user.id
+        await handler.update_disliked_products(user_id, [])
+        await message.answer(
+            "Список нелюбимых продуктов очищен",
             reply_markup=get_preferences_keyboard()
         )
         await state.set_state(PreferenceStates.waiting_for_menu_choice)
