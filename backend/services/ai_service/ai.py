@@ -3,6 +3,7 @@ import asyncio
 import json
 import re
 import ssl
+import requests
  
 def parse_ingredients(recipe: str) -> dict:
     """
@@ -71,35 +72,41 @@ def format_recipe(raw_recipe: str) -> tuple:
  
     return formatted, ingredients
  
- 
-# ... parse_ingredients and format_recipe functions remain the same as they don't need to be async ...
- 
-async def get_recipe(query: str) -> tuple:
+  
+async def get_recipe(query: str, user_dict: dict) -> tuple:
     """
-    Асинхронно получает запрос вида "борщ на 2 порции" и возвращает рецепт от YandexGPT
-    и словарь ингредиентов
+    Получает запрос вида "борщ на 2 порции" и возвращает рецепт от YandexGPT
+    и словарь ингредиентов с учетом аллергий и нелюбимых продуктов
     """
     API_KEY = 'AQVN2lI_NW4aqQAZKXjE37BeQzGaEHNIvKudc0zn'
     URL = 'https://llm.api.cloud.yandex.net/foundationModels/v1/completion'
- 
+
     headers = {
         'Authorization': f'Api-Key {API_KEY}',
         'Content-Type': 'application/json'
     }
-    ssl_context = ssl.create_default_context()
-    ssl_context.check_hostname = False
-    ssl_context.verify_mode = ssl.CERT_NONE
- 
-    system_prompt = """Ты - опытный повар. Напиши подробный рецепт блюда.
+
+    # Формируем дополнительные ограничения для рецепта
+    restrictions = []
+    if user_dict.get('allergies'):
+        restrictions.append(f"НЕЛЬЗЯ использовать продукты, на которые есть аллергия: {', '.join(user_dict['allergies'])}")
+    if user_dict.get('unliked_products'):
+        restrictions.append(f"НЕ используй следующие продукты: {', '.join(user_dict['unliked_products'])}")
+
+    restrictions_text = "\n".join(restrictions)
+
+    system_prompt = f"""Ты - опытный повар. Напиши подробный рецепт блюда.
+    {restrictions_text}
+
     Формат ответа должен быть строго такой:
- 
+
     Ингредиенты:
     • продукт - количество
- 
+
     Приготовление:
     1. Шаг первый
     2. Шаг второй"""
- 
+
     data = {
         "modelUri": "gpt://b1gjsebilk1g8hvtc07c/yandexgpt-lite",
         "completionOptions": {
@@ -114,24 +121,37 @@ async def get_recipe(query: str) -> tuple:
             },
             {
                 "role": "user",
-                "text": f"Напиши рецепт: {query}"
+                "text": f"Напиши рецепт: {query + ' ' + restrictions_text}"
             }
         ]
     }
- 
+
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(URL, headers=headers, json=data, ssl=ssl_context) as response:
-                if response.status != 200:
-                    error_text = await response.text()
-                    raise Exception(f"API вернул статус {response.status}: {error_text}")
- 
-                result = await response.json()
-                recipe = result['result']['alternatives'][0]['message']['text']
- 
-                # Форматируем и получаем словарь ингредиентов
-                formatted_recipe, ingredients_dict = format_recipe(recipe)
-                return formatted_recipe, ingredients_dict
- 
+        response = requests.post(URL, headers=headers, json=data)
+        response.raise_for_status()
+
+        result = response.json()
+        recipe = result['result']['alternatives'][0]['message']['text']
+
+        # Форматируем и получаем словарь ингредиентов
+        formatted_recipe, ingredients_dict = format_recipe(recipe)
+        return formatted_recipe, ingredients_dict
+
     except Exception as e:
         return f"Произошла ошибка при получении рецепта: {str(e)}", {}
+    
+# def main():
+#     query = "карбонара на 1 человека"
+#     user_dict = {
+#         "allergies": ["бекон"],
+#         "unliked_products": ["яйца", "сыр"]
+#     }
+
+#     loop = asyncio.get_event_loop()
+#     formatted_recipe, ingredients_dict = loop.run_until_complete(get_recipe(query, user_dict))
+#     print(formatted_recipe)
+#     print(ingredients_dict)
+
+
+# if __name__ == "__main__":
+#     main()
