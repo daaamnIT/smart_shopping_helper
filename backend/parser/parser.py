@@ -32,7 +32,7 @@ async def data_parser(ingredients: dict) -> dict[str, list[dict]]:
 
         wait = WebDriverWait(driver, 10)
 
-        if flag:  # Добавил флаг а то Москва то появляется то нет
+        if flag:
             try:
                 moscow_button = wait.until(EC.element_to_be_clickable(
                     (By.XPATH, "//div[@class='button_content' and contains(text(), 'Москва')]")
@@ -42,9 +42,13 @@ async def data_parser(ingredients: dict) -> dict[str, list[dict]]:
             except Exception as e:
                 print(f"Couldn't click Moscow button: {e}")
 
-        wait.until(EC.presence_of_element_located((By.XPATH, "//div[@data-digi-type='productsSearch']")))
+        try:
+            wait.until(EC.presence_of_element_located((By.XPATH, "//div[@data-digi-type='productsSearch']")))
+            products = driver.find_elements(By.XPATH, "//div[@data-digi-type='productsSearch']")
+        except Exception as e:
+            print(f"Error waiting for products: {e}")
+            products = []
 
-        products = driver.find_elements(By.XPATH, "//div[@data-digi-type='productsSearch']")
         product_data = []
 
         for product in products[:5]:
@@ -66,51 +70,69 @@ async def data_parser(ingredients: dict) -> dict[str, list[dict]]:
 
         if product_data:
             results[el] = product_data
+        else:
+            results[el] = [{"message": "Товар отсутствует в данном магазине, попробуйте поискать в другом."}]
 
     driver.quit()
     return results
+
 
 # Наш рюкзак
 def knapsack(products_data: dict[str, list[dict]], quantities: dict, budget: float) -> dict:
     selected_products = {}
     total_cost = 0
+    final_cost = 0  # Итоговая стоимость
     insufficient_budget = False
 
-    for ingredient, required_quantity in quantities.items():
+    for ingredient in quantities.keys():  # Перебираем только названия ингредиентов
         if ingredient in products_data:
-            affordable_products = sorted(products_data[ingredient], key=lambda x: x['price'])
-            selected_products[ingredient] = []
+            valid_products = [
+                product for product in products_data[ingredient] if 'price' in product
+            ]
 
-            for product in affordable_products:
-                if len(selected_products[ingredient]) < required_quantity and total_cost + product['price'] <= budget:
-                    selected_products[ingredient].append(product)
-                    total_cost += product['price']
+            if valid_products:
+                best_product = min(valid_products, key=lambda x: x['price'])
+                selected_products[ingredient] = [best_product]
+                final_cost += best_product['price']
 
-            if len(selected_products[ingredient]) < required_quantity:
-                insufficient_budget = True
+                if total_cost + best_product['price'] <= budget:
+                    total_cost += best_product['price']
+                else:
+                    insufficient_budget = True
+            else:
+                selected_products[ingredient] = [
+                    {"message": "Товар отсутствует в данном магазине, попробуйте поискать в другом."}
+                ]
         else:
-            selected_products[ingredient] = []
-            insufficient_budget = True
+            selected_products[ingredient] = [
+                {"message": "Товар отсутствует в данном магазине, попробуйте поискать в другом."}
+            ]
 
-    # Если бюджет закончился
+    # Если мало денег
     if insufficient_budget:
-        selected_products["message"] = "Бюджета недостаточно для покупки всех ингредиентов. Попробуйте увеличить бюджет."
+        selected_products["message"] = (
+            f"Бюджета недостаточно для покупки всех ингредиентов. "
+            f"Итоговая стоимость всех продуктов: {final_cost:.2f} RUB. "
+            f"Попробуйте увеличить бюджет."
+        )
 
     return selected_products
+
 
 # Тестил на яблочном штруделе
 if __name__ == "__main__":
     ingredients_example = {
-        "яблоки": 1,
-        "тесто фило": 1,
-        "сахар": 1,
-        "корица": 1,
-        "сухари панировочные": 1,
-        "масло сливочное": 1,
-        "яйцо": 1,
-        "лимонный сок": 1
+        "спагетти": 12313,
+        "бекон": 342421,
+        "яйца": 12342,
+        "сливки": 1,
+        "тёртый сыр": 1,
+        "чеснок": 2,
+        "fafafaf": 1,
+        "соль": 1,
+        "перец": 1
     }
-    budget = 1000  # бюджет (маленький, не хватит)
+    budget = 10  # бюджет (маленький, не хватит)
 
     raw_data = asyncio.run(data_parser(ingredients_example))
     chosen_products = knapsack(raw_data, ingredients_example, budget)
@@ -118,8 +140,11 @@ if __name__ == "__main__":
     print("Продукты:")
     for ingredient, products in chosen_products.items():
         if ingredient == "message":
-            print(products)  # Если не хватило денег просто выводим название продукта
+            print(products)
         else:
             print(f"{ingredient.capitalize()}:")
             for product in products:
-                print(f"  - {product['name']} | {product['price']} RUB | {product['link']}")
+                if "name" in product and "price" in product and "link" in product:
+                    print(f"  - {product['name']} | {product['price']} RUB | {product['link']}")
+                elif "message" in product:
+                    print(f"  - {product['message']}")
