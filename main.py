@@ -117,6 +117,8 @@ async def process_recipe_request(message: types.Message, state: FSMContext):
 
         recipe_text, ingredients = await get_recipe(message.text, preferences)
         
+        recipe_text = '🍳 ' + message.text + "\n\n" + recipe_text
+        
 
         ingredients = {key.replace(' ', "+"): value for key, value in ingredients.items()}
         standardized_ingredients = await standardize_ingredients(ingredients)
