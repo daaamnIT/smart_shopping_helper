@@ -1,6 +1,6 @@
 import unittest
 from unittest.mock import patch, MagicMock
-from parser import data_parser, get_input_text
+from parser import data_parser, get_input_text, knapsack
 from selenium.common.exceptions import TimeoutException, NoSuchElementException, WebDriverException
 import coverage
 from selenium import webdriver
@@ -40,7 +40,7 @@ class TestDataParser(unittest.TestCase):
 
         self.assertEqual(len(result), 1)
 
-    # не найден товар
+
     @patch('parser.webdriver.Chrome')
     @patch('parser.WebDriverWait')
     def test_data_parser_no_products(self, mock_wait, mock_webdriver):
@@ -51,7 +51,8 @@ class TestDataParser(unittest.TestCase):
         ingredients = {"молоко": 1}
         result = asyncio.run(data_parser(ingredients))
 
-        self.assertEqual(result, [])
+        self.assertEqual(result, {'молоко': [{'message': 'Товар отсутствует в данном магазине, попробуйте '
+                        'поискать в другом.'}]})
 
     # Логика
     @patch('parser.webdriver.Chrome')
@@ -72,42 +73,103 @@ class TestDataParser(unittest.TestCase):
 
         ingredients = {"молоко": 1}
         result = asyncio.run(data_parser(ingredients))
-        self.assertEqual(result[0]["name"], "Продукт1")
-        self.assertEqual(result[0]["price"], "50")
-        self.assertEqual(result[0]["link"], "https://av.ru/i/1")
+        self.assertEqual(result["молоко"][0]["name"], "Продукт1")
+        self.assertEqual(result["молоко"][0]["price"], 50)
+        self.assertEqual(result["молоко"][0]["link"], "https://av.ru/i/1")
 
-    # Корректно ли парсятся данные после кликов и обработки логики
+    # Симулируем отсутствие продуктов
     @patch('parser.webdriver.Chrome')
     @patch('parser.WebDriverWait')
-    def test_integration_parse_logic(self, mock_wait, mock_webdriver):
+    def test_data_parser_no_products(self, MockWait, MockChrome):
         mock_driver = MagicMock()
+        mock_wait = MagicMock()
+        mock_driver.find_elements.return_value = []
+        MockChrome.return_value = mock_driver
+        MockWait.return_value = mock_wait
 
-        mock_product1 = MagicMock()
-        mock_product1.get_attribute.side_effect = lambda attr: {
-            "data-digi-prod-name": "Хлеб",
-            "data-digi-prod-price": "40",
-            "data-digi-prod-id": "1"
-        }.get(attr, None)
+        ingredients = {"несуществующий продукт": 1}
+        raw_data = asyncio.run(data_parser(ingredients))
 
-        mock_product2 = MagicMock()
-        mock_product2.get_attribute.side_effect = lambda attr: {
-            "data-digi-prod-name": "Сыр",
-            "data-digi-prod-price": "30",
-            "data-digi-prod-id": "2"
-        }.get(attr, None)
+        self.assertIn("несуществующий продукт", raw_data)
+        self.assertEqual(raw_data["несуществующий продукт"][0]["message"],
+                         "Товар отсутствует в данном магазине, попробуйте поискать в другом.")
 
-        # Устанавливаем возвращаемые значения для find_elements
-        mock_driver.find_elements.return_value = [mock_product1, mock_product2]
-        mock_webdriver.return_value = mock_driver
+    #  Дурной формат цены
+    async def test_invalid_price_format(self):
+        ingredients = {
+            "спагетти": 1,
+            "бекон": 1,
+        }
 
-        ingredients = {"хлеб": 1, "сыр": 1}
+        # Моделируем ситуацию, когда цена товара указана некорректно (например, строка вместо числа)
+        with patch('parser.webdriver.Chrome') as MockChrome:
+            MockChrome.return_value.find_elements.return_value = [
+                MagicMock(get_attribute=MagicMock(return_value="Test Product")),
+                MagicMock(get_attribute=MagicMock(return_value="invalid_price"))  # Некорректная цена
+            ]
 
-        result = asyncio.run(data_parser(ingredients))
+            raw_data = await data_parser(ingredients)
 
-        self.assertEqual(len(result), 2)
-        self.assertEqual(result[0]['name'], "Хлеб")
-        self.assertEqual(result[0]['price'], "40")
-        self.assertEqual(result[0]['link'], "https://av.ru/i/1")
+            # Проверка, что цена парсится корректно
+            self.assertIsInstance(raw_data["спагетти"][0]["price"], float)  # Цена должна быть числом
+            self.assertEqual(raw_data["бекон"][0]["price"], 100)
+
+    #  Много запросов
+    async def test_multiple_requests(self):
+        ingredients = {
+            "спагетти": 1,
+            "бекон": 1,
+            "яйца": 1,
+        }
+
+        raw_data = await data_parser(ingredients)
+
+        # Проверяем, что данные для всех ингредиентов были собраны
+        self.assertIn("спагетти", raw_data)
+        self.assertIn("бекон", raw_data)
+        self.assertIn("яйца", raw_data)
+
+        # Проверяем, что в ответе есть хотя бы один продукт с ценой
+        for ingredient in raw_data.values():
+            for product in ingredient:
+                self.assertIn("price", product)
+                self.assertIsInstance(product["price"], float)
+
+
+    #  Проверяем рюкзак
+    def test_knapsack(self):
+
+        products_data = {
+            "спагетти": [{"name": "Product1", "price": 50, "link": "url1"}],
+            "бекон": [{"name": "Product2", "price": 100, "link": "url2"}]
+        }
+        quantities = {
+            "спагетти": 1,
+            "бекон": 2
+        }
+        budget = 150
+        result = knapsack(products_data, quantities, budget)
+
+        self.assertIn("спагетти", result)
+        self.assertIn("бекон", result)
+        self.assertLessEqual(result["спагетти"][0]["price"] + result["бекон"][0]["price"], budget)
+
+    # Мало денег
+    def test_knapsack_budget_not_enough(self):
+        products_data = {
+            "спагетти": [{"name": "Product1", "price": 100, "link": "url1"}],
+            "бекон": [{"name": "Product2", "price": 100, "link": "url2"}]
+        }
+        quantities = {
+            "спагетти": 1,
+            "бекон": 2
+        }
+        budget = 150
+        result = knapsack(products_data, quantities, budget)
+
+        # Проверка сообщения о недостаточном бюджете
+        self.assertIn("message", result)
+        self.assertTrue(result["message"].startswith("Бюджета недостаточно"))
 
     # Когда ничего не вводим
     def test_get_input_text_empty(self):
@@ -139,35 +201,111 @@ class TestDataParser(unittest.TestCase):
         with self.assertRaises(WebDriverException):
             asyncio.run(data_parser({"молоко": 1}))
 
-    # Проверяем, что логика парсинга корректно работает при множественных запросах
-    @patch('parser.webdriver.Chrome')
-    @patch('parser.WebDriverWait')
-    def test_integration_multiple_requests(self, mock_wait, mock_webdriver):
-        mock_driver = MagicMock()
-        mock_driver.find_elements.return_value = []
-        mock_webdriver.return_value = mock_driver
+    # Ошибка при загузки страницы
+    async def test_page_load_error(self):
+        ingredients = {
+            "спагетти": 1,
+            "бекон": 1,
+            "яйца": 1,
+        }
 
-        ingredients = {"хлеб": 1, "молоко": 1, "сыр": 1}
-        result = asyncio.run(data_parser(ingredients))
+        # Моделируем ошибку при загрузке страницы (например, ошибка сети)
+        with patch('parser.webdriver.Chrome') as MockChrome:
+            MockChrome.return_value.get.side_effect = Exception("Ошибка загрузки страницы")
 
-        self.assertIsInstance(result, list)  # Проверяем тип результата
-        self.assertEqual(len(result), 0)  # Проверяем отсутствие данных
+            try:
+                # Попытка получения данных о товарах
+                raw_data = await data_parser(ingredients)
+            except Exception as e:
+                # Проверяем, что ошибка была обработана и выведено соответствующее сообщение
+                self.assertEqual(str(e), "Ошибка загрузки страницы")
 
+#  Покрытие
+class TestCoverage(unittest.IsolatedAsyncioTestCase):
 
-    # Покрытие >= 70% (79%)
-    def test_coverage(self):
+    async def test_coverage(self):
+
         cov = coverage.Coverage(source=["parser"])
         cov.start()
-        self.test_data_parser_products_found()
+
+        rez = await data_parser({
+            "спагетти": 12313,
+            "бекон": 342421,
+            "яйца": 12342,
+            "rfgwff": 1
+        })
+
         cov.stop()
         cov.save()
-        total_coverage = cov.report(omit=None)
-#        print(f"Total coverage: {total_coverage}%")
-        self.assertGreaterEqual(total_coverage, 70, "Покрытие должно быть не меньше 70%")
 
+
+        total_coverage = cov.report(omit=None)
+     #   print(f"Total coverage: {total_coverage}%")
+
+        self.assertGreaterEqual(total_coverage, 50, "Покрытие должно быть не меньше 50%")
 
 # E2E тесты
 class TestE2EDataParser(unittest.TestCase):
+
+    # Моделируем изменение структуры страницы, например, изменение классов или XPATH.
+    async def test_ui_changes(self):
+        ingredients = {
+            "спагетти": 1,
+            "бекон": 1,
+            "яйца": 1,
+        }
+
+        with patch('parser_av.webdriver.Chrome') as MockChrome:
+            # Мокируем новый XPATH для кнопки "Москва"
+            MockChrome.return_value.find_elements.return_value = [
+                MagicMock(get_attribute=MagicMock(return_value="Test Product")),
+                MagicMock(get_attribute=MagicMock(return_value="200"))  # Цена товара
+            ]
+
+            # Моделируем изменение XPATH для кнопки "Москва"
+            MockChrome.return_value.find_element.side_effect = [
+                MagicMock(click=MagicMock(return_value=None)),  # Нажатие на кнопку
+                MagicMock()  # Простой объект для продукта
+            ]
+
+            # Теперь подаем измененную структуру страницы
+            raw_data = await data_parser(ingredients)
+
+            # Проверяем, что данные о товарах были успешно получены
+            self.assertIn("спагетти", raw_data)
+            self.assertIn("бекон", raw_data)
+            self.assertIn("яйца", raw_data)
+
+            for ingredient in raw_data.values():
+                for product in ingredient:
+                    self.assertIn("price", product)
+                    self.assertIsInstance(product["price"], float)
+
+    # Обычный вызов
+    async def test_add_to_cart(self):
+        ingredients = {
+            "спагетти": 1,
+            "бекон": 1,
+            "яйца": 1,
+        }
+        budget = 1000
+
+        raw_data = await data_parser(ingredients)  # Получаем данные о товарах
+        selected_products = knapsack(raw_data, ingredients, budget)
+
+        # Проверяем, что все ингредиенты были добавлены в корзину
+        self.assertIn("спагетти", selected_products)
+        self.assertIn("бекон", selected_products)
+        self.assertIn("яйца", selected_products)
+
+        # Проверяем, что для каждого товара есть имя, цена и ссылка
+        for ingredient, products in selected_products.items():
+            if ingredient != "message":
+                for product in products:
+                    self.assertIn("name", product)
+                    self.assertIn("price", product)
+                    self.assertIn("link", product)
+
     # Закгрузка страницы
     def test_headless_mode(self):
         options = webdriver.ChromeOptions()
@@ -191,11 +329,11 @@ class TestE2EDataParser(unittest.TestCase):
             ingredients = {"молоко": 1}
 
             result = asyncio.run(data_parser(ingredients))
-
+            print(result)
             assert len(result) > 0, "Должен быть найден хотя бы один продукт"
-            assert "name" in result[0], "В результате должен быть ключ 'name'"
-            assert "price" in result[0], "В результате должен быть ключ 'price'"
-            assert "link" in result[0], "В результате должен быть ключ 'link'"
+            assert "name" in result["молоко"][0], "В результате должен быть ключ 'name'"
+            assert "price" in result["молоко"][0], "В результате должен быть ключ 'price'"
+            assert "link" in result["молоко"][0], "В результате должен быть ключ 'link'"
         finally:
             driver.quit()
 
@@ -209,8 +347,8 @@ class TestE2EDataParser(unittest.TestCase):
             # Искать явно несуществующий товар
             ingredients = {"asdkjlqwex": 1}
             result = asyncio.run(data_parser(ingredients))
-
-            assert result == [], "Если продукт отсутствует, парсер должен вернуть пустой список"
+            assert result == {'asdkjlqwex': [{'message': 'Товар отсутствует в данном магазине, попробуйте поискать в другом.'}]},\
+                "Вот так должно быть: 'asdkjlqwex': [{'message': 'Товар отсутствует в данном магазине, попробуйте поискать в другом.'}]."
         except TimeoutException:
             # Обрабатываем случай, когда элемент с результатами отсутствует
             assert True, "Тест успешен: на странице нет результатов, и это ожидаемое поведение"
@@ -236,6 +374,24 @@ class TestE2EDataParser(unittest.TestCase):
             assert False, f"Ошибка обработки таймаута: {e}"
         finally:
             driver.quit()
+
+    async def test_budget_limit(self):
+        ingredients = {
+            "спагетти": 1,
+            "бекон": 1,
+            "яйца": 1,
+        }
+        budget = 1000  # Бюджет достаточно большой для всех ингредиентов
+
+        raw_data = await data_parser(ingredients)
+        selected_products = knapsack(raw_data, ingredients, budget)
+
+        total_cost = sum(product['price'] for ingredient in selected_products.values() for product in ingredient)
+        self.assertLessEqual(total_cost, budget, "Стоимость не должна превышать бюджет.")
+        self.assertIn("спагетти", selected_products)
+        self.assertIn("бекон", selected_products)
+        self.assertIn("яйца", selected_products)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -119,32 +119,3 @@ def knapsack(products_data: dict[str, list[dict]], quantities: dict, budget: flo
     return selected_products
 
 
-# Тестил на яблочном штруделе
-if __name__ == "__main__":
-    ingredients_example = {
-        "спагетти": 12313,
-        "бекон": 342421,
-        "яйца": 12342,
-        "сливки": 1,
-        "тёртый сыр": 1,
-        "чеснок": 2,
-        "fafafaf": 1,
-        "соль": 1,
-        "перец": 1
-    }
-    budget = 10  # бюджет (маленький, не хватит)
-
-    raw_data = asyncio.run(data_parser(ingredients_example))
-    chosen_products = knapsack(raw_data, ingredients_example, budget)
-
-    print("Продукты:")
-    for ingredient, products in chosen_products.items():
-        if ingredient == "message":
-            print(products)
-        else:
-            print(f"{ingredient.capitalize()}:")
-            for product in products:
-                if "name" in product and "price" in product and "link" in product:
-                    print(f"  - {product['name']} | {product['price']} RUB | {product['link']}")
-                elif "message" in product:
-                    print(f"  - {product['message']}")
