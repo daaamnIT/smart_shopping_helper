@@ -72,9 +72,7 @@ def format_recipe(raw_recipe: str) -> tuple:
  
     return formatted, ingredients
  
- 
-# ... parse_ingredients and format_recipe functions remain the same as they don't need to be async ...
- 
+  
 async def get_recipe(query: str, user_dict: dict) -> tuple:
     """
     Получает запрос вида "борщ на 2 порции" и возвращает рецепт от YandexGPT
