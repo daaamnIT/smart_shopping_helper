@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import patch, MagicMock
-from ai import parse_ingredients, format_recipe, get_recipe
+from backend.services.ai_service.ai import parse_ingredients, format_recipe, get_recipe
 
 def test_parse_ingredients_with_ingredients_section():
     recipe = """
