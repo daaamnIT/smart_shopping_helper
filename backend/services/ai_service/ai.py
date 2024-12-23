@@ -5,7 +5,7 @@ import re
 import ssl
 import requests
 
-from backend.services.ai_service.settings import GPT_API_KEY
+from settings import GPT_API_KEY
  
 def parse_ingredients(recipe: str) -> dict:
     """
