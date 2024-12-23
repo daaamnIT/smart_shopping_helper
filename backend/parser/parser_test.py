@@ -40,7 +40,6 @@ class TestDataParser(unittest.TestCase):
 
         self.assertEqual(len(result), 1)
 
-
     @patch('parser.webdriver.Chrome')
     @patch('parser.WebDriverWait')
     def test_data_parser_no_products(self, mock_wait, mock_webdriver):
@@ -77,7 +76,6 @@ class TestDataParser(unittest.TestCase):
         self.assertEqual(result["молоко"][0]["price"], 50)
         self.assertEqual(result["молоко"][0]["link"], "https://av.ru/i/1")
 
-    # Симулируем отсутствие продуктов
     @patch('parser.webdriver.Chrome')
     @patch('parser.WebDriverWait')
     def test_data_parser_no_products(self, MockWait, MockChrome):
@@ -213,6 +211,7 @@ class TestDataParser(unittest.TestCase):
         with patch('parser.webdriver.Chrome') as MockChrome:
             MockChrome.return_value.get.side_effect = Exception("Ошибка загрузки страницы")
 
+
             try:
                 # Попытка получения данных о товарах
                 raw_data = await data_parser(ingredients)
@@ -224,6 +223,7 @@ class TestDataParser(unittest.TestCase):
 class TestCoverage(unittest.IsolatedAsyncioTestCase):
 
     async def test_coverage(self):
+
 
         cov = coverage.Coverage(source=["parser"])
         cov.start()
@@ -306,6 +306,7 @@ class TestE2EDataParser(unittest.TestCase):
                     self.assertIn("price", product)
                     self.assertIn("link", product)
 
+
     # Закгрузка страницы
     def test_headless_mode(self):
         options = webdriver.ChromeOptions()
@@ -337,6 +338,7 @@ class TestE2EDataParser(unittest.TestCase):
         finally:
             driver.quit()
 
+
     # Тест на несущ товар
     def test_no_products_found(self):
         options = webdriver.ChromeOptions()
@@ -349,6 +351,7 @@ class TestE2EDataParser(unittest.TestCase):
             result = asyncio.run(data_parser(ingredients))
             assert result == {'asdkjlqwex': [{'message': 'Товар отсутствует в данном магазине, попробуйте поискать в другом.'}]},\
                 "Вот так должно быть: 'asdkjlqwex': [{'message': 'Товар отсутствует в данном магазине, попробуйте поискать в другом.'}]."
+
         except TimeoutException:
             # Обрабатываем случай, когда элемент с результатами отсутствует
             assert True, "Тест успешен: на странице нет результатов, и это ожидаемое поведение"

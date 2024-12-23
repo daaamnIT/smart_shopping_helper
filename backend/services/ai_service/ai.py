@@ -4,7 +4,8 @@ import json
 import re
 import ssl
 import requests
-from .settings import GPT_API_KEY
+
+from backend.services.ai_service.settings import GPT_API_KEY
  
 def parse_ingredients(recipe: str) -> dict:
     """
@@ -73,8 +74,7 @@ def format_recipe(raw_recipe: str) -> tuple:
     #     ingredients_text += f"• {name}: {amount}\n"
  
     return formatted, ingredients
- 
-  
+   
 async def get_recipe(query: str, user_dict: dict) -> tuple:
         """
         Получает запрос вида "борщ на 2 порции" и возвращает рецепт от YandexGPT,
