@@ -26,6 +26,9 @@ from aiogram.filters import Filter
 
 class MenuButtonFilter(Filter):
     async def __call__(self, message: types.Message, state: FSMContext) -> bool:
+        if message.text and message.text.startswith('/'):
+            return False
+            
         current_state = await state.get_state()
         
         text_input_states = [
@@ -49,7 +52,7 @@ class MenuButtonFilter(Filter):
             "Аллергия",
             "Ограничение цены",
             "Нелюбимые продукты",
-            "Посмотреть мои предпочтения"
+            "Посмотреть мои предпочтения",
         ]
         return message.text in menu_buttons
 
@@ -107,15 +110,34 @@ class LoadingMessageManager:
                 print(f"Error stopping loading message task: {e}")
 
 
-@router.message(~MenuButtonFilter())
-async def handle_non_menu_message(message: types.Message, state: FSMContext):
-    current_state = await state.get_state()
-    
-    if message.text and not message.reply_to_message and not current_state:
-        await message.answer(
-            "Пожалуйста, используйте кнопки меню для навигации по боту.",
-            reply_markup=get_main_keyboard()
-        )
+class MenuButtonFilter(Filter):
+    async def __call__(self, message: types.Message, state: FSMContext) -> bool:
+        current_state = await state.get_state()
+        
+        text_input_states = [
+            RecipeStates.waiting_for_recipe_request,
+            PreferenceStates.waiting_for_allergies,
+            PreferenceStates.waiting_for_price_limit,
+            PreferenceStates.waiting_for_disliked_products
+        ]
+        
+        if current_state in [state.state for state in text_input_states]:
+            return True
+            
+        menu_buttons = [
+            texts.buttons["new_recipe"],
+            texts.buttons["favorite_recipes"],
+            texts.buttons["recipe_history"],
+            texts.buttons["preferences"],
+            "Отмена",
+            "Очистить",
+            "Назад",
+            "Аллергия",
+            "Ограничение цены",
+            "Нелюбимые продукты",
+            "Посмотреть мои предпочтения",
+        ]
+        return message.text in menu_buttons
 
 @router.message(lambda msg: msg.text == texts.buttons["new_recipe"])
 async def new_recipe_request(message: types.Message, state: FSMContext):
@@ -714,6 +736,15 @@ async def cmd_start(message: types.Message):
         reply_markup=get_main_keyboard()
     )
 
+@router.message(~MenuButtonFilter(), ~Command("start"))  # Added ~Command("start")
+async def handle_non_menu_message(message: types.Message, state: FSMContext):
+    current_state = await state.get_state()
+    
+    if message.text and not message.reply_to_message and not current_state:
+        await message.answer(
+            "Пожалуйста, используйте кнопки меню для навигации по боту.",
+            reply_markup=get_main_keyboard()
+        )
 async def main():
     default = DefaultBotProperties(parse_mode=ParseMode.HTML)
 
