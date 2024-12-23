@@ -236,9 +236,17 @@ pip-selfcheck.json
 # Ignore all local history of files
 .history
 .ionide
+# SQLite database
+*.sqlite3
+*.sqlite3-journal
+*.db
 
-# Project specific settings files
-backend/services/ai_service/settings.py
-bot/settings.py
+# Settings files
+settings.py
+setting.py
+
+# Old parser file
+parser_old.py
+
 
 # End of https://www.toptal.com/developers/gitignore/api/venv,python,visualstudiocode,macos
