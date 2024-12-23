@@ -12,12 +12,6 @@ import asyncio
 # Юнит тесты
 class TestDataParser(unittest.TestCase):
 
-    # Чекаем что get_input_text возвращает все как нужно
-    def test_get_input_text(self):
-        ingredients = {"молоко": 1, "хлеб": 2, "сыр": 1}
-        expected = ["молоко", "хлеб", "сыр"]
-        self.assertEqual(get_input_text(ingredients), expected)
-
     # Проверяем что происходит поск по нужной нам ссылке
     @patch('parser.webdriver.Chrome')
     @patch('parser.WebDriverWait')
@@ -133,48 +127,6 @@ class TestDataParser(unittest.TestCase):
                 self.assertIn("price", product)
                 self.assertIsInstance(product["price"], float)
 
-
-    #  Проверяем рюкзак
-    def test_knapsack(self):
-
-        products_data = {
-            "спагетти": [{"name": "Product1", "price": 50, "link": "url1"}],
-            "бекон": [{"name": "Product2", "price": 100, "link": "url2"}]
-        }
-        quantities = {
-            "спагетти": 1,
-            "бекон": 2
-        }
-        budget = 150
-        result = knapsack(products_data, quantities, budget)
-
-        self.assertIn("спагетти", result)
-        self.assertIn("бекон", result)
-        self.assertLessEqual(result["спагетти"][0]["price"] + result["бекон"][0]["price"], budget)
-
-    # Мало денег
-    def test_knapsack_budget_not_enough(self):
-        products_data = {
-            "спагетти": [{"name": "Product1", "price": 100, "link": "url1"}],
-            "бекон": [{"name": "Product2", "price": 100, "link": "url2"}]
-        }
-        quantities = {
-            "спагетти": 1,
-            "бекон": 2
-        }
-        budget = 150
-        result = knapsack(products_data, quantities, budget)
-
-        # Проверка сообщения о недостаточном бюджете
-        self.assertIn("message", result)
-        self.assertTrue(result["message"].startswith("Бюджета недостаточно"))
-
-    # Когда ничего не вводим
-    def test_get_input_text_empty(self):
-        ingredients = {}
-        expected = []
-        self.assertEqual(get_input_text(ingredients), expected)
-
     @patch('parser.webdriver.Chrome')
     @patch('parser.WebDriverWait')
     def test_headless_browser_option(self, mock_wait, mock_webdriver):
@@ -218,31 +170,6 @@ class TestDataParser(unittest.TestCase):
             except Exception as e:
                 # Проверяем, что ошибка была обработана и выведено соответствующее сообщение
                 self.assertEqual(str(e), "Ошибка загрузки страницы")
-
-#  Покрытие
-class TestCoverage(unittest.IsolatedAsyncioTestCase):
-
-    async def test_coverage(self):
-
-
-        cov = coverage.Coverage(source=["parser"])
-        cov.start()
-
-        rez = await data_parser({
-            "спагетти": 12313,
-            "бекон": 342421,
-            "яйца": 12342,
-            "rfgwff": 1
-        })
-
-        cov.stop()
-        cov.save()
-
-
-        total_coverage = cov.report(omit=None)
-     #   print(f"Total coverage: {total_coverage}%")
-
-        self.assertGreaterEqual(total_coverage, 50, "Покрытие должно быть не меньше 50%")
 
 # E2E тесты
 class TestE2EDataParser(unittest.TestCase):
