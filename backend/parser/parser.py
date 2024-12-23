@@ -156,6 +156,9 @@ async def knapsack(products_data: dict[str, list[dict]], quantities: dict, budge
             f"Попробуйте увеличить бюджет."
         )
 
+    selected_products["total_cost"] = final_cost
+
+
     return selected_products
 
 

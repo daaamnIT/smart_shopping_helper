@@ -3,7 +3,7 @@ from .database.mongo_db import MongoDBManager
 from .database.setting import connection
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton # type: ignore
 from bot.paste import RecipeCallback
-
+import re
 
 
 class Handler:
@@ -23,8 +23,15 @@ class Handler:
 
     async def new_recipe_handler(self, user_id, recipe_data):
         product_links = {}
+        total_cost = 0
+        
         if 'links' in recipe_data:
             for category, products in recipe_data['links'].items():
+                if category == "total_cost":
+                    continue
+                if category == "message":
+                    continue
+                    
                 if not isinstance(products, list):
                     continue
                     
@@ -34,12 +41,20 @@ class Handler:
                         
                     if 'message' in product:
                         product_links[category] = product['message']
+                        continue
                         
                     if product.get('name') and product.get('link'):
                         product_links[product['name']] = {
                             'link': product['link'],
                             'price': product.get('price', 'Цена не указана')
                         }
+                        if isinstance(product.get('price'), (int, float)):
+                            total_cost += float(product['price'])
+            
+            product_links['total_cost'] = total_cost
+            
+            if "message" in recipe_data['links']:
+                product_links['message'] = recipe_data['links']['message']
 
         recipe_id = self.recipe_db.save_recipe(
             recipe_name=recipe_data['request'],
@@ -51,17 +66,37 @@ class Handler:
         return recipe_id
     
     async def format_recipe_with_links(self, recipe: dict) -> str:
-        base_text = f"🍳 {recipe['name']}\n\n{recipe['recipe']}"
+        base_text = f"{recipe['recipe']}"
         
         if recipe.get('product_links'):
             base_text += "\n\nСсылки на продукты:\n"
+            
+            portions_match = re.search(r'на (\d+) порци[юие]', recipe.get('name', ''))
+            portions = portions_match.group(1) if portions_match else "1"
+            
             for product_name, info in recipe['product_links'].items():
+                if product_name in ['total_cost', 'message']:
+                    continue
+                    
                 base_text += f"\n{product_name.replace('+', ' ')}\n"
                 if isinstance(info, str):
                     base_text += f"{info}\n"
                 else:
                     base_text += f"Цена: {info.get('price', 'Цена не указана')}\n"
                     base_text += f"Ссылка: {info.get('link', 'Ссылка отсутствует')}\n"
+            
+            if 'total_cost' in recipe['product_links']:
+                portions_in_russian = "порций"
+                if 2 <= int(portions) <= 4:
+                    portions_in_russian = "порции"
+                if int(portions) == 1:
+                    portions_in_russian = "порцию"
+                
+                total_cost = float(recipe['product_links']['total_cost']) * int(portions)
+                base_text += f"\n💰 Приблизительная итоговая стоимость на {portions} {portions_in_russian}: {total_cost:.2f} RUB"
+            
+            if 'message' in recipe['product_links']:
+                base_text += f"\n\n⚠️ {recipe['product_links']['message']}"
         
         return base_text
     

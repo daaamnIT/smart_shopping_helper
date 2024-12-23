@@ -7,6 +7,7 @@ from aiogram.client.default import DefaultBotProperties   #type: ignore
 from aiogram.enums import ParseMode  #type: ignore
 from aiogram.filters.callback_data import CallbackData  #type: ignore
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery #type: ignore
+from aiogram.fsm.state import State #type: ignore
 
 
 from bot.keyboards.main_keyboard import get_main_keyboard
@@ -19,6 +20,38 @@ from bot.keyboards.preferences_keyboard import get_preferences_keyboard
 from bot.paste import RecipeCallback
 import asyncio
 from bot.loading_messages import get_random_loading_message
+import re
+from aiogram.filters import Filter
+
+
+class MenuButtonFilter(Filter):
+    async def __call__(self, message: types.Message, state: FSMContext) -> bool:
+        current_state = await state.get_state()
+        
+        text_input_states = [
+            RecipeStates.waiting_for_recipe_request,
+            PreferenceStates.waiting_for_allergies,
+            PreferenceStates.waiting_for_price_limit,
+            PreferenceStates.waiting_for_disliked_products
+        ]
+        
+        if current_state in [state.state for state in text_input_states]:
+            return True
+            
+        menu_buttons = [
+            texts.buttons["new_recipe"],
+            texts.buttons["favorite_recipes"],
+            texts.buttons["recipe_history"],
+            texts.buttons["preferences"],
+            "Отмена",
+            "Очистить",
+            "Назад",
+            "Аллергия",
+            "Ограничение цены",
+            "Нелюбимые продукты",
+            "Посмотреть мои предпочтения"
+        ]
+        return message.text in menu_buttons
 
 
 
@@ -73,6 +106,17 @@ class LoadingMessageManager:
             except Exception as e:
                 print(f"Error stopping loading message task: {e}")
 
+
+@router.message(~MenuButtonFilter())
+async def handle_non_menu_message(message: types.Message, state: FSMContext):
+    current_state = await state.get_state()
+    
+    if message.text and not message.reply_to_message and not current_state:
+        await message.answer(
+            "Пожалуйста, используйте кнопки меню для навигации по боту.",
+            reply_markup=get_main_keyboard()
+        )
+
 @router.message(lambda msg: msg.text == texts.buttons["new_recipe"])
 async def new_recipe_request(message: types.Message, state: FSMContext):
     await message.answer(
@@ -85,16 +129,21 @@ async def new_recipe_request(message: types.Message, state: FSMContext):
     )
     await state.set_state(RecipeStates.waiting_for_recipe_request)
 
-async def generate_products_message(data):
+async def generate_products_message(data, portions):
     if isinstance(data, str):
         return data
     
     products_message = ""
     
     for category, products in data.items():
+        if category == "total_cost":
+            continue
+        if category == "message":
+            continue
+            
         if products:
             if len(products) == 1 and "message" in products[0]:
-                products_message += f"{category.replace('+', ' ')}:\n{products[0]['message']}\n\n"
+                products_message += f"{category}:\n{products[0]['message']}\n\n"
                 continue
             
             for product in products:
@@ -107,6 +156,17 @@ async def generate_products_message(data):
                         f"Ссылка: {product.get('link', 'Ссылка отсутствует')}\n\n"
                     )
     
+    if "total_cost" in data:
+        portions_in_russian = "порций"
+        if 2 <= int(portions) <= 4:
+            portions_in_russian = "порции"
+        if int(portions) == 1:
+            portions_in_russian = "порцию"
+        products_message += f"\n💰 Приблизительная итоговая стоимость на {int(portions)} {portions_in_russian}: {int(portions) * float(data['total_cost'])} RUB"
+    
+    if "message" in data:
+        products_message += f"\n\n⚠️ {data['message']}"
+    
     return products_message.strip() if products_message else "Продукты не найдены"
 
 @router.message(StateFilter(RecipeStates.waiting_for_recipe_request))
@@ -118,7 +178,7 @@ async def process_recipe_request(message: types.Message, state: FSMContext):
         )
         await state.clear()
         return
-    
+
     loading_message = await message.answer("🔍 Начинаю поиск рецепта...")
     loading_manager = LoadingMessageManager(loading_message)
     
@@ -130,8 +190,17 @@ async def process_recipe_request(message: types.Message, state: FSMContext):
 
         recipe_text, ingredients = await get_recipe(message.text, preferences)
         
-        recipe_text = '🍳 ' + message.text + "\n\n" + recipe_text
+        title_match = re.match(r'\[(.*?)\]', recipe_text)
+        title = title_match.group(1) if title_match else message.text
         
+        portions_match = re.search(r'Порций — (\d+)', recipe_text)
+        portions = portions_match.group(1) if portions_match else "1"
+        portions_in_russian = "порций"
+        if 2 <= int(portions) <= 4:
+            portions_in_russian = "порции"
+        if int(portions) == 1:
+            portions_in_russian = "порцию"
+        full_title = f"{title + ' на ' + portions + ' ' + portions_in_russian}"
 
         ingredients = {key.replace(' ', "+"): value for key, value in ingredients.items()}
         standardized_ingredients = await standardize_ingredients(ingredients)
@@ -145,26 +214,24 @@ async def process_recipe_request(message: types.Message, state: FSMContext):
         max_price = int(preferences['max_price']) if preferences['max_price'] else 20000000
         links = await knapsack(raw_links, standardized_ingredients, max_price)
 
+        print(links)
 
         recipe_text = recipe_text.replace('**', '')
         recipe_text = recipe_text.replace('*', '•')
-        key_word = "Приготовление"
-        key_word_pos = recipe_text.find(key_word)
-        if key_word_pos != -1:
-            recipe_text = recipe_text[:key_word_pos] + "\n" + recipe_text[key_word_pos:]
-        
+        recipe_text = recipe_text.replace('[' + title + ']', title)
+        recipe_text = recipe_text.replace('Ингредиенты:', '\n\nИнгредиенты:')
+        recipe_text = recipe_text.replace('Приготовление:', '\n\nПриготовление:')
+        recipe_text = recipe_text.replace('Порций —', f"\nПорций —")
         recipe_data = {
             'text': recipe_text,
             'ingredients': ingredients,
-            'request': message.text,
+            'request': full_title,
             'links': links
         }
-
         
-        # await loading_manager.set_stage("💾 Сохраняю рецепт...")
         recipe_id = await handler.new_recipe_handler(user_id, recipe_data)
         
-        products_message = await generate_products_message(links)
+        products_message = await generate_products_message(links, portions)
         result_message = f"{recipe_text}\n\nСсылки на продукты:\n\n{products_message}"
         
         keyboard = handler.create_recipe_keyboard(recipe_id, user_id, show_full=False)
@@ -173,7 +240,7 @@ async def process_recipe_request(message: types.Message, state: FSMContext):
         
         await loading_message.edit_text(result_message, reply_markup=keyboard)
         
-        await message.answer("Приготовим что-то еще?", reply_markup=get_main_keyboard())
+        await message.answer("Выберите действие:", reply_markup=get_main_keyboard())
         await state.clear()
         
     except Exception as e:
@@ -191,7 +258,7 @@ async def process_recipe_request(message: types.Message, state: FSMContext):
             reply_markup=error_keyboard
         )
         
-        await message.answer("Приготовим что-то еще?", reply_markup=get_main_keyboard())
+        await message.answer("Выберите действие:", reply_markup=get_main_keyboard())
         await state.clear()
 
 @router.callback_query(lambda c: c.data == "try_again")
@@ -301,7 +368,7 @@ async def get_full_recipe(callback: CallbackQuery, callback_data: RecipeCallback
     
     await callback.answer()
 
-
+    
 @router.callback_query(PaginationCallback.filter())
 async def show_more_recipes(callback: CallbackQuery, callback_data: PaginationCallback):
     offset = callback_data.offset
@@ -468,6 +535,7 @@ async def preferences(message: types.Message, state: FSMContext):
         reply_markup=get_preferences_keyboard()
     )
     await state.set_state(PreferenceStates.waiting_for_menu_choice)
+
 
 @router.message(StateFilter(PreferenceStates.waiting_for_menu_choice))
 async def handle_preference_choice(message: types.Message, state: FSMContext):
